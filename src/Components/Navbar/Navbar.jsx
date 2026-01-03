@@ -39,27 +39,13 @@ const Navbar = () => {
           >
             المنتجات
           </Link>
-          <a
-            href="#orders"
-            className="navbar-link"
+          <Link
+            to="/order"
+            className={`navbar-link ${isActive("/order") ? "active" : ""}`}
             onClick={() => setIsMenuOpen(false)}
           >
             الطلبات
-          </a>
-          <a
-            href="#customers"
-            className="navbar-link"
-            onClick={() => setIsMenuOpen(false)}
-          >
-            العملاء
-          </a>
-          <a
-            href="#settings"
-            className="navbar-link"
-            onClick={() => setIsMenuOpen(false)}
-          >
-            الإعدادات
-          </a>
+          </Link>
         </div>
 
         <div className="navbar-toggle" onClick={toggleMenu}>

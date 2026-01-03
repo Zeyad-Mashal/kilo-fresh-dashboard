@@ -3,6 +3,43 @@
   padding: 2rem;
   background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
   animation: fadeIn 0.5s ease-in;
+  position: relative;
+}
+
+.message {
+  position: fixed;
+  top: 90px;
+  right: 2rem;
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 500;
+  z-index: 1500;
+  animation: slideDown 0.3s ease-out;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  max-width: 400px;
+}
+
+.message.success {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.message.error {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes fadeIn {
@@ -82,7 +119,11 @@
   transform: translateY(0);
 }
 
-.btn-add:disabled {
+.btn-add:disabled,
+.btn-edit:disabled,
+.btn-delete:disabled,
+.btn-cancel:disabled,
+.btn-save:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

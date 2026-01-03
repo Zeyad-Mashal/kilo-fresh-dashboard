@@ -8,6 +8,13 @@ import {
   FiSave,
   FiImage,
 } from "react-icons/fi";
+import {
+  getAllProducts,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+} from "../../API/Product/productApi";
+import { getAllCategories } from "../../API/Category/categoryApi";
 
 const Product = () => {
   const [products, setProducts] = useState([]);
@@ -15,31 +22,44 @@ const Product = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({
-    title: "",
+    name: "",
     description: "",
     priceBefore: "",
     priceAfter: "",
     categoryId: "",
-    images: [],
     isOffer: false,
   });
   const [errors, setErrors] = useState({});
   const [imagePreviews, setImagePreviews] = useState([]);
+  const [imageFiles, setImageFiles] = useState([]);
+  const [existingImages, setExistingImages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState({ type: "", text: "" });
 
-  // Load categories from localStorage
+  // Load products and categories from API on mount
   useEffect(() => {
-    const loadCategories = () => {
-      const storedCategories = localStorage.getItem("categories");
-      if (storedCategories) {
-        setCategories(JSON.parse(storedCategories));
-      }
-    };
-
-    loadCategories();
-    // Listen for category updates
-    const interval = setInterval(loadCategories, 1000);
-    return () => clearInterval(interval);
+    fetchProducts();
+    fetchCategories();
   }, []);
+
+  const fetchProducts = async () => {
+    setLoading(true);
+    const result = await getAllProducts();
+    setLoading(false);
+    if (result.success) {
+      setProducts(result.products);
+    } else {
+      setMessage({ type: "error", text: result.error });
+      setTimeout(() => setMessage({ type: "", text: "" }), 5000);
+    }
+  };
+
+  const fetchCategories = async () => {
+    const result = await getAllCategories();
+    if (result.success) {
+      setCategories(result.categories);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -73,6 +93,8 @@ const Product = () => {
 
     if (validFiles.length === 0) return;
 
+    setImageFiles([...imageFiles, ...validFiles]);
+
     const readers = validFiles.map((file) => {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -81,12 +103,8 @@ const Product = () => {
       });
     });
 
-    Promise.all(readers).then((newImages) => {
-      setFormData({
-        ...formData,
-        images: [...formData.images, ...newImages],
-      });
-      setImagePreviews([...imagePreviews, ...newImages]);
+    Promise.all(readers).then((newPreviews) => {
+      setImagePreviews([...imagePreviews, ...newPreviews]);
       if (errors.images) {
         setErrors({
           ...errors,
@@ -97,19 +115,26 @@ const Product = () => {
   };
 
   const removeImage = (index) => {
-    const newImages = formData.images.filter((_, i) => i !== index);
-    const newPreviews = imagePreviews.filter((_, i) => i !== index);
-    setFormData({
-      ...formData,
-      images: newImages,
-    });
-    setImagePreviews(newPreviews);
+    // Check if it's an existing image or a new file
+    const totalPreviews = existingImages.length + imagePreviews.length;
+    if (index < existingImages.length) {
+      // Remove existing image
+      const newExisting = existingImages.filter((_, i) => i !== index);
+      setExistingImages(newExisting);
+    } else {
+      // Remove new file
+      const fileIndex = index - existingImages.length;
+      const newFiles = imageFiles.filter((_, i) => i !== fileIndex);
+      const newPreviews = imagePreviews.filter((_, i) => i !== fileIndex);
+      setImageFiles(newFiles);
+      setImagePreviews(newPreviews);
+    }
   };
 
   const validateForm = () => {
     const newErrors = {};
-    if (!formData.title.trim()) {
-      newErrors.title = "عنوان المنتج مطلوب";
+    if (!formData.name.trim()) {
+      newErrors.name = "اسم المنتج مطلوب";
     }
     if (!formData.description.trim()) {
       newErrors.description = "وصف المنتج مطلوب";
@@ -126,108 +151,154 @@ const Product = () => {
     if (!formData.categoryId) {
       newErrors.categoryId = "يجب اختيار الفئة";
     }
-    if (formData.images.length === 0) {
+    if (!editingId && imageFiles.length === 0) {
+      newErrors.images = "يجب إضافة صورة واحدة على الأقل";
+    }
+    if (editingId && existingImages.length === 0 && imageFiles.length === 0) {
       newErrors.images = "يجب إضافة صورة واحدة على الأقل";
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
 
+    setLoading(true);
+    let result;
+
     if (editingId) {
-      setProducts(
-        products.map((prod) =>
-          prod.id === editingId
-            ? {
-                ...prod,
-                ...formData,
-                priceBefore: parseFloat(formData.priceBefore),
-                priceAfter: parseFloat(formData.priceAfter),
-                updatedAt: new Date().toLocaleDateString(),
-              }
-            : prod
-        )
+      // Update existing product
+      result = await updateProduct(
+        editingId,
+        formData.name.trim(),
+        formData.priceBefore,
+        formData.priceAfter,
+        formData.description.trim(),
+        formData.categoryId,
+        formData.isOffer,
+        imageFiles.length > 0 ? imageFiles : undefined
       );
-      setEditingId(null);
     } else {
-      const newProduct = {
-        id: Date.now(),
-        ...formData,
-        priceBefore: parseFloat(formData.priceBefore),
-        priceAfter: parseFloat(formData.priceAfter),
-        createdAt: new Date().toLocaleDateString(),
-      };
-      setProducts([...products, newProduct]);
+      // Create new product
+      result = await createProduct(
+        formData.name.trim(),
+        formData.priceBefore,
+        formData.priceAfter,
+        formData.description.trim(),
+        formData.categoryId,
+        formData.isOffer,
+        imageFiles
+      );
     }
 
-    setFormData({
-      title: "",
-      description: "",
-      priceBefore: "",
-      priceAfter: "",
-      categoryId: "",
-      images: [],
-      isOffer: false,
-    });
-    setImagePreviews([]);
-    setIsFormOpen(false);
-    setErrors({});
+    setLoading(false);
+
+    if (result.success) {
+      setMessage({ type: "success", text: result.message });
+      setTimeout(() => setMessage({ type: "", text: "" }), 3000);
+      // Reset form
+      setFormData({
+        name: "",
+        description: "",
+        priceBefore: "",
+        priceAfter: "",
+        categoryId: "",
+        isOffer: false,
+      });
+      setImagePreviews([]);
+      setImageFiles([]);
+      setExistingImages([]);
+      setIsFormOpen(false);
+      setErrors({});
+      setEditingId(null);
+      // Refresh products list
+      await fetchProducts();
+    } else {
+      setErrors({ submit: result.error });
+      setMessage({ type: "error", text: result.error });
+      setTimeout(() => setMessage({ type: "", text: "" }), 5000);
+    }
   };
 
   const handleEdit = (product) => {
     setFormData({
-      title: product.title,
+      name: product.name,
       description: product.description,
       priceBefore: product.priceBefore.toString(),
       priceAfter: product.priceAfter.toString(),
-      categoryId: product.categoryId,
-      images: product.images,
+      categoryId: product.category?._id || product.category || "",
       isOffer: product.isOffer || false,
     });
-    setImagePreviews(product.images);
-    setEditingId(product.id);
+    // Set existing images for preview
+    const existingImageUrls = product.images?.map((img) => img.url) || [];
+    setExistingImages(existingImageUrls);
+    setImagePreviews([]);
+    setImageFiles([]);
+    setEditingId(product._id);
     setIsFormOpen(true);
     setErrors({});
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (window.confirm("هل أنت متأكد من حذف هذا المنتج؟")) {
-      setProducts(products.filter((prod) => prod.id !== id));
+      setLoading(true);
+      const result = await deleteProduct(id);
+      setLoading(false);
+
+      if (result.success) {
+        setMessage({ type: "success", text: result.message });
+        setTimeout(() => setMessage({ type: "", text: "" }), 3000);
+        // Refresh products list
+        await fetchProducts();
+      } else {
+        setMessage({ type: "error", text: result.error });
+        setTimeout(() => setMessage({ type: "", text: "" }), 5000);
+      }
     }
   };
 
   const handleCancel = () => {
     setFormData({
-      title: "",
+      name: "",
       description: "",
       priceBefore: "",
       priceAfter: "",
       categoryId: "",
-      images: [],
       isOffer: false,
     });
     setImagePreviews([]);
+    setImageFiles([]);
+    setExistingImages([]);
     setIsFormOpen(false);
     setEditingId(null);
     setErrors({});
   };
 
   const getCategoryName = (categoryId) => {
-    const category = categories.find((cat) => cat.id === categoryId);
+    if (!categoryId) return "غير محدد";
+    const category = categories.find((cat) => cat._id === categoryId);
     return category ? category.name : "غير محدد";
+  };
+
+  const getAllImagePreviews = () => {
+    return [...existingImages, ...imagePreviews];
   };
 
   return (
     <div className="product-page">
+      {message.text && (
+        <div className={`message ${message.type}`}>
+          {message.text}
+        </div>
+      )}
       <div className="product-header">
         <h1 className="product-title">إدارة المنتجات</h1>
         <button
           className="btn-add"
           onClick={() => setIsFormOpen(true)}
-          disabled={isFormOpen}
+          disabled={isFormOpen || loading}
         >
           <FiPlus className="icon" />
           إضافة منتج جديد
@@ -247,21 +318,21 @@ const Product = () => {
 
             <form onSubmit={handleSubmit} className="product-form">
               <div className="form-group">
-                <label htmlFor="title">
-                  عنوان المنتج <span className="required">*</span>
+                <label htmlFor="name">
+                  اسم المنتج <span className="required">*</span>
                 </label>
                 <input
                   type="text"
-                  id="title"
-                  name="title"
-                  value={formData.title}
+                  id="name"
+                  name="name"
+                  value={formData.name}
                   onChange={handleInputChange}
-                  className={errors.title ? "input-error" : ""}
-                  placeholder="أدخل عنوان المنتج"
+                  className={errors.name ? "input-error" : ""}
+                  placeholder="أدخل اسم المنتج"
                   autoFocus
                 />
-                {errors.title && (
-                  <span className="error-message">{errors.title}</span>
+                {errors.name && (
+                  <span className="error-message">{errors.name}</span>
                 )}
               </div>
 
@@ -338,7 +409,7 @@ const Product = () => {
                 >
                   <option value="">اختر الفئة</option>
                   {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
+                    <option key={category._id} value={category._id}>
                       {category.name}
                     </option>
                   ))}
@@ -383,9 +454,12 @@ const Product = () => {
                 {errors.images && (
                   <span className="error-message">{errors.images}</span>
                 )}
-                {imagePreviews.length > 0 && (
+                {errors.submit && (
+                  <span className="error-message">{errors.submit}</span>
+                )}
+                {getAllImagePreviews().length > 0 && (
                   <div className="images-preview-container">
-                    {imagePreviews.map((preview, index) => (
+                    {getAllImagePreviews().map((preview, index) => (
                       <div key={index} className="image-preview-item">
                         <img
                           src={preview}
@@ -410,12 +484,18 @@ const Product = () => {
                   type="button"
                   className="btn-cancel"
                   onClick={handleCancel}
+                  disabled={loading}
                 >
                   إلغاء
                 </button>
-                <button type="submit" className="btn-save">
+                <button type="submit" className="btn-save" disabled={loading}>
                   <FiSave className="icon" />
-                  {editingId ? "تحديث" : "حفظ"} المنتج
+                  {loading
+                    ? "جاري الحفظ..."
+                    : editingId
+                    ? "تحديث"
+                    : "حفظ"}{" "}
+                  المنتج
                 </button>
               </div>
             </form>
@@ -426,20 +506,24 @@ const Product = () => {
       {/* Products List */}
       <div className="products-section">
         <h2 className="section-title">جميع المنتجات</h2>
-        {products.length === 0 ? (
+        {loading && products.length === 0 ? (
+          <div className="empty-state">
+            <p>جاري التحميل...</p>
+          </div>
+        ) : products.length === 0 ? (
           <div className="empty-state">
             <p>لا توجد منتجات بعد. انقر على "إضافة منتج جديد" للبدء.</p>
           </div>
         ) : (
           <div className="products-grid">
             {products.map((product) => (
-              <div key={product.id} className="product-card">
+              <div key={product._id} className="product-card">
                 <div className="product-content">
-                  {product.images.length > 0 && (
+                  {product.images && product.images.length > 0 && (
                     <div className="product-images-container">
                       <img
-                        src={product.images[0]}
-                        alt={product.title}
+                        src={product.images[0].url}
+                        alt={product.name}
                         className="product-image"
                       />
                       {product.isOffer && (
@@ -453,11 +537,13 @@ const Product = () => {
                     </div>
                   )}
                   <div className="product-info">
-                    <h3 className="product-title-card">{product.title}</h3>
+                    <h3 className="product-title-card">{product.name}</h3>
                     <p className="product-description">{product.description}</p>
                     <div className="product-category">
                       <span className="category-badge">
-                        {getCategoryName(product.categoryId)}
+                        {getCategoryName(
+                          product.category?._id || product.category
+                        )}
                       </span>
                       {product.isOffer && (
                         <span className="offer-badge-text">في العروض</span>
@@ -478,13 +564,15 @@ const Product = () => {
                     className="btn-edit"
                     onClick={() => handleEdit(product)}
                     title="تعديل المنتج"
+                    disabled={loading}
                   >
                     <FiEdit2 />
                   </button>
                   <button
                     className="btn-delete"
-                    onClick={() => handleDelete(product.id)}
+                    onClick={() => handleDelete(product._id)}
                     title="حذف المنتج"
+                    disabled={loading}
                   >
                     <FiTrash2 />
                   </button>
